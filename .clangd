@@ -1,6 +1,0 @@
-CompileFlags:
-  Add: [
-    "-I.",
-    "-Wall",
-  ]
-  Compiler: gcc
