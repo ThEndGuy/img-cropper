@@ -1,5 +1,7 @@
 # Builds
 build/
 *.exe
+# clang settings
+.clangd
 # Images
 testImages/

@@ -34,23 +34,41 @@ Color FADED_BLACK = {50, 50, 50, 100};
 
 // int WINDOW_RESOLUTION = WINDOW_WIDTH/WINDOW_HEIGHT;
 
+
+typedef struct {
+    Image image;
+    Texture2D texture;
+    Vector2 texturePos;
+} TextureView;
+
+typedef struct {
+    Rectangle rect;
+    Vector2 center;
+
+    float scale;
+    float targetScale;
+
+    bool attached;
+    Vector2 attachOffset;
+} SelectionRect;
+
 float aspectRatio(Vector2 obj){
     return obj.x / obj.y;
 }
 
-void ForceRectInsideImg(Rectangle *rect, Vector2 *rectCent, Texture2D *tex, Vector2 pos){
-    if (rect->x <= pos.x) {rect->x = pos.x;}
-    if ((rect->x + rect->width) >= (pos.x + tex->width)) {rect->x = pos.x + tex->width - rect->width;}
-    if (rect->y <= pos.y) {rect->y = pos.y;}
-    if ((rect->y + rect->height) >= (pos.y + tex->height)){rect->y = pos.y + tex->height - rect->height;}
-    rectCent->x = rect->x + rect->width/2.0f;
-    rectCent->y = rect->y + rect->height/2.0f;
+void ForceRectInsideImg(SelectionRect *sel, TextureView *texV){
+    if (sel->rect.x <= texV->texturePos.x) {sel->rect.x = texV->texturePos.x;}
+    if ((sel->rect.x + sel->rect.width) >= (texV->texturePos.x + texV->texture.width)) {sel->rect.x = texV->texturePos.x + texV->texture.width - sel->rect.width;}
+    if (sel->rect.y <= texV->texturePos.y) {sel->rect.y = texV->texturePos.y;}
+    if ((sel->rect.y + sel->rect.height) >= (texV->texturePos.y + texV->texture.height)){sel->rect.y = texV->texturePos.y + texV->texture.height - sel->rect.height;}
+    sel->center.x = sel->rect.x + sel->rect.width/2.0f;
+    sel->center.y = sel->rect.y + sel->rect.height/2.0f;
 }
-bool IsInsideImage(Vector2 pos, Texture2D *tex, Vector2 imgPos){
-    if ((pos.x < imgPos.x) |
-       (pos.x > (imgPos.x + tex->width)) |
-       (pos.y < imgPos.y) |
-       (pos.y > (imgPos.y + tex->height))){
+bool IsInsideImage(Vector2 pos, TextureView *texV){
+    if ((pos.x < texV->texturePos.x) ||
+       (pos.x > (texV->texturePos.x + texV->texture.width)) ||
+       (pos.y < texV->texturePos.y) ||
+       (pos.y > (texV->texturePos.y + texV->texture.height))){
         return false;
         }
     return true;
@@ -93,7 +111,7 @@ Image LoadImageFromFile(const char *fileName) {
 }
 
 Image QueryAndLoadImageFromFile() {
-    const char *filters[] = {"*.png", "*.jpg"};
+    const char *filters[] = {".jpeg", "*.png", "*.jpg"};
     const char *fileName = tinyfd_openFileDialog("Open file:", "./", 2, filters, "Image files", 0);
 
     printf("-------------------------------\n");
@@ -123,7 +141,7 @@ bool SaveSelectAsImage(Rectangle cropRect, Image img, const char* fileName){
 
 bool QueryAndSaveSelectAsImage(Rectangle cropRect, Image img){
 
-    const char *filters[] = {"*.png", "*.jpg"};
+    const char *filters[] = {".jpeg", "*.png", "*.jpg"};
     const char *fileName = tinyfd_saveFileDialog("Save image to:", "./", ARR_SIZE(filters), filters, NULL);
     if (!fileName) {return false;}
 
@@ -159,6 +177,9 @@ void ScaleRect(Rectangle *rect, float scale){
 
 
 
+
+
+
 int main()
 {
     // Config and start
@@ -169,35 +190,32 @@ int main()
 
 // Opening image 
     
-    // Image mainImg = QueryAndLoadImageFromFile();
-    Image mainImg = {0};
-    Texture2D mainImgTex = LoadTextureFromImage(mainImg);
+    TextureView mainTex = {0};
+    SelectionRect selection = {0};
 
 
     // Selection rect settings
-    Rectangle selectRect =  { 0, 0, 225, 350};
-    Vector2 selectRectCenter = {
-        selectRect.x + selectRect.width/2.0f,
-        selectRect.y + selectRect.height/2.0f,
+    selection.rect =  (Rectangle){0, 0, 225, 350};
+    selection.center = (Vector2){
+        selection.rect.x + selection.rect.width/2.0f,
+        selection.rect.y + selection.rect.height/2.0f,
         };
-    float selectRectScale = 1.0f;
-    float selectRectTargetScale = 1.0f;
-    Vector2 attachOffset = {0};
-    bool selectRectAttached = false;
-    //
+    selection.scale = 1.0f;
+    selection.targetScale = 1.0f;
+    selection.attached = false;
 
 
     SetTargetFPS(FPS);
     while (!WindowShouldClose()) {
         if (IsKeyPressed(KEY_Q)) {CloseWindow();}
         float centerY = GetScreenHeight() / 2.0f;
-        Vector2 imagePos = {IMG_X_OFFSET, centerY - (mainImgTex.height/2.0f)};
+        mainTex.texturePos = (Vector2){IMG_X_OFFSET, centerY - (mainTex.texture.height/2.0f)};
         BeginDrawing();
         ClearBackground(DARKGRAY);
 
         // Draw image
         
-        DrawTextureEx(mainImgTex, imagePos, 0.0f, globalScale, WHITE);
+        DrawTextureEx(mainTex.texture, mainTex.texturePos, 0.0f, globalScale, WHITE);
 
         // Selection rectangle logic
         // Using keys:
@@ -205,84 +223,84 @@ int main()
         int keyOffset;
         if (IsKeyDown(KEY_LEFT_SHIFT)){keyOffset = 10;}else{keyOffset = 1;}
 
-        if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) {selectRectCenter.x += keyOffset;} 
-        if (IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT))  {selectRectCenter.x -= keyOffset;}
-        if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN))  {selectRectCenter.y += keyOffset;} 
-        if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP))    {selectRectCenter.y -= keyOffset;} 
+        if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) {selection.center.x += keyOffset;} 
+        if (IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT))  {selection.center.x -= keyOffset;}
+        if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN))  {selection.center.y += keyOffset;} 
+        if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP))    {selection.center.y -= keyOffset;} 
 
         // Using mouse:
         Vector2 mousePos = GetMousePosition();
         if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)){
                     // if not on rect, move it to mouse
-                if (!CheckCollisionPointRec(mousePos, selectRect)){
-                    selectRectCenter = mousePos;
+                if (!CheckCollisionPointRec(mousePos, selection.rect)){
+                    selection.center = mousePos;
             } else {
                 // if on rect, anchor to mouse
-                if (!selectRectAttached){
-                    selectRectAttached = true;
-                    attachOffset.x = mousePos.x - selectRectCenter.x;
-                    attachOffset.y = mousePos.y - selectRectCenter.y;
+                if (!selection.attached){
+                    selection.attached = true;
+                    selection.attachOffset.x = mousePos.x - selection.center.x;
+                    selection.attachOffset.y = mousePos.y - selection.center.y;
                 }
             }
         }
 
         // Stop anchoring
-        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)){selectRectAttached = false;}
-        if (!IsInsideImage(mousePos, &mainImgTex, imagePos)){
-            selectRectCenter.x = selectRect.x + selectRect.width/2.0f;
-            selectRectCenter.y = selectRect.y + selectRect.height/2.0f;
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)){selection.attached = false;}
+        if (!IsInsideImage(mousePos, &mainTex)){
+            selection.center.x = selection.rect.x + selection.rect.width/2.0f;
+            selection.center.y = selection.rect.y + selection.rect.height/2.0f;
 
         }
-        if (selectRectAttached){
-            selectRectCenter.x = mousePos.x - attachOffset.x;
-            selectRectCenter.y = mousePos.y - attachOffset.y;
+        if (selection.attached){
+            selection.center.x = mousePos.x - selection.attachOffset.x;
+            selection.center.y = mousePos.y - selection.attachOffset.y;
         }
 
         float wheel = GetMouseWheelMove();
 
-        selectRectTargetScale += wheel * 0.1f;
+        selection.targetScale += wheel * 0.1f;
         float dt = GetFrameTime();
 
-        float maxScaleX = (float)mainImgTex.width  / SELECT_WIDTH;
-        float maxScaleY = ((float)mainImgTex.height) / SELECT_HEIGHT;
+        float maxScaleX = (float)mainTex.image.width  / SELECT_WIDTH;
+        float maxScaleY = ((float)mainTex.image.height) / SELECT_HEIGHT;
         float maxScale = (maxScaleX < maxScaleY) ? maxScaleX : maxScaleY;
-        if (selectRectTargetScale > maxScale){
-        selectRectTargetScale = maxScale;
+        if (selection.targetScale > maxScale){
+        selection.targetScale = maxScale;
         }
 
-        if (selectRectTargetScale < 0.1f){
-            selectRectTargetScale = 0.1f;
+        if (selection.targetScale < 0.1f){
+            selection.targetScale = 0.1f;
         }
 
-        selectRectScale += (selectRectTargetScale - selectRectScale) * 20.0f * dt;
+        selection.scale += (selection.targetScale - selection.scale) * 20.0f * dt;
 
-        selectRect.width = SELECT_WIDTH * selectRectScale;
-        selectRect.height = SELECT_HEIGHT * selectRectScale;
-        selectRect.x = selectRectCenter.x - selectRect.width/2.0f;
-        selectRect.y = selectRectCenter.y - selectRect.height/2.0f;
-        if (selectRect.height > mainImgTex.height){selectRect.height = mainImgTex.height;}
+        selection.rect.width = SELECT_WIDTH * selection.scale;
+        selection.rect.height = SELECT_HEIGHT * selection.scale;
+        selection.rect.x = selection.center.x - selection.rect.width/2.0f;
+        selection.rect.y = selection.center.y - selection.rect.height/2.0f;
+        if (selection.rect.height > mainTex.image.height){selection.rect.height = mainTex.image.height;}
 
-        ForceRectInsideImg(&selectRect, &selectRectCenter, &mainImgTex, imagePos);
+        ForceRectInsideImg(&selection, &mainTex);
 
-        Rectangle cropRect = {selectRect.x - imagePos.x, selectRect.y - imagePos.y, selectRect.width, selectRect.height};
+        Rectangle cropRect = {selection.rect.x - mainTex.texturePos.x, selection.rect.y - mainTex.texturePos.y, selection.rect.width, selection.rect.height};
         Rectangle imgPreview = {GetScreenWidth() - 410, 100, SELECT_WIDTH, SELECT_HEIGHT};
-        DrawTexturePro(mainImgTex, cropRect, imgPreview, (Vector2){0, 0}, 0, WHITE);
+        DrawTexturePro(mainTex.texture, cropRect, imgPreview, (Vector2){0, 0}, 0, WHITE);
 
 
         // Draw stuff
         // OPEN IMAGE BUTTON
         if (GuiButton((Rectangle){100, GetScreenHeight() - 100, BUTTON_WIDTH, BUTTON_HEIGHT}, "#012# Open image")) { 
-            mainImg = QueryAndLoadImageFromFile();
-            mainImgTex = LoadTextureFromImage(mainImg);
-            selectRectTargetScale = 1.0f;
+            mainTex.image = QueryAndLoadImageFromFile();
+            mainTex.texture = LoadTextureFromImage(mainTex.image);
+            selection.targetScale = 1.0f;
         }
 
         // SAVE IMAGE BUTTON
-        if (IsImageValid(mainImg)) {if (GuiButton((Rectangle){imgPreview.x + imgPreview.width/2.0f - BUTTON_WIDTH/2.0f, imgPreview.y + imgPreview.height + 20, BUTTON_WIDTH, BUTTON_HEIGHT }, "#002# Save as Image")) QueryAndSaveSelectAsImage(cropRect, mainImg);}
-        DrawRectangleRec(selectRect, SELECT_COLOR);
-        DrawRectangleLinesEx(selectRect, 1, BLACK);
-        DrawThirdsLines(&selectRect);
-        DrawText(TextFormat("%f, %f", selectRectCenter.x, selectRectCenter.y), GetScreenWidth()-500, GetScreenHeight()/2 + 200, 20, BLACK);
+        if (IsImageValid(mainTex.image)) {if (GuiButton((Rectangle){imgPreview.x + imgPreview.width/2.0f - BUTTON_WIDTH/2.0f, imgPreview.y + imgPreview.height + 20, BUTTON_WIDTH, BUTTON_HEIGHT }, "#002# Save as Image")) QueryAndSaveSelectAsImage(cropRect, mainTex.image);}
+        DrawRectangleRec(selection.rect, SELECT_COLOR);
+        DrawRectangleLinesEx(selection.rect, 1, BLACK);
+        DrawThirdsLines(&selection.rect);
+        DrawText(TextFormat("%f, %f", selection.center.x, selection.center.y), GetScreenWidth()-500, GetScreenHeight()/2 + 200, 20, BLACK);
 
 
         if (IsWindowResized()){
@@ -291,8 +309,8 @@ int main()
         EndDrawing();
     }
     
-    UnloadImage(mainImg);
-    UnloadTexture(mainImgTex);
+    UnloadImage(mainTex.image);
+    UnloadTexture(mainTex.texture);
     CloseWindow();
     return 0;
 
