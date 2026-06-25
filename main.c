@@ -23,19 +23,20 @@ static const int TEXT_BOX_H_PADDING = 8;
 
 static const Color BG_COLOR = {0x18, 0x18, 0x18, 0xFF};
 static const Color VIEW_COLOR = {0x10, 0x10, 0x10, 0xFF};
+static const Color TXT_SEL_COLOR = {0, 120, 215, 150};
 
 #define BUTTON_WIDTH 120
 #define BUTTON_HEIGHT 30
 #define BUTTON_PADDING 10
 // #define SELECT_WIDTH 225
 // #define SELECT_HEIGHT 300
-#define SELECT_RES ((float)SELECT_WIDTH / SELECT_HEIGHT)
+// #define SELECT_RES ((float)SELECT_WIDTH / SELECT_HEIGHT)
 
 #define MAX_INPUT_CHARS 100
 
-#define DEBUG_INFO true
 
 float globalScale = 1.0f;
+bool debug_info = true;
 
 
 Color SELECT_COLOR = {100, 100, 100, 150};
@@ -48,9 +49,13 @@ Color FADED_BLACK = {50, 50, 50, 100};
 
 typedef struct {
     Rectangle text_box;
+
+    Font font;
+
     char *string;
     int letter_count;
     int max_letter_count;
+    int font_sp;
     int font_size;
 
     int mouse_cursor;
@@ -58,6 +63,11 @@ typedef struct {
     int backspace_frames;
 
     char str[MAX_INPUT_CHARS + 1];
+
+    int sel_start;
+    int sel_end;
+    bool sel_update;
+    int click_frames;
 
     bool hovering;
     bool writable;
@@ -251,6 +261,17 @@ void setup_texture(TextureView *texV){
 
 }
 
+WritableTextBox setup_wtxtbx(const Rectangle text_box_rect, char *def_str, Font font){
+    WritableTextBox wtxtbx = {0};
+    wtxtbx.text_box = text_box_rect; 
+    strcpy(wtxtbx.str, def_str);
+    wtxtbx.letter_count = strlen(wtxtbx.str); 
+    wtxtbx.font = font;
+    wtxtbx.font_sp = 1; // FONT SPACING
+    wtxtbx.sel_start = wtxtbx.letter_count; // SETTING THIS FOR NOW TO WORK WITH CTRL + LEFT AND CTRL + RIGHT
+    wtxtbx.sel_end = wtxtbx.letter_count;
+    return wtxtbx;
+}
 
 
 void DrawWritableTextBox(WritableTextBox *wtxtbx) {    
@@ -267,20 +288,26 @@ void DrawWritableTextBox(WritableTextBox *wtxtbx) {
     if (wtxtbx->writable){
         int key = GetCharPressed();
         while (key > 0) { 
-            wtxtbx->str[wtxtbx->letter_count] = (char)key;
-            wtxtbx->str[wtxtbx->letter_count + 1] = '\0';
-            int next_width = MeasureText(wtxtbx->str, wtxtbx->font_size);
-            if (next_width < (wtxtbx->text_box.width - TEXT_BOX_W_PADDING)){
-                wtxtbx->letter_count++;
+            if ('0' <= key && key <= '9') {
+                wtxtbx->str[wtxtbx->letter_count] = (char)key;
+                wtxtbx->str[wtxtbx->letter_count + 1] = '\0';
+                Vector2 next_width = MeasureTextEx(wtxtbx->font, wtxtbx->str, wtxtbx->font.baseSize, wtxtbx->font_sp);
+                if (next_width.x < (wtxtbx->text_box.width - TEXT_BOX_W_PADDING)){
+                    wtxtbx->letter_count++;
+                } else {
+                    wtxtbx->str[wtxtbx->letter_count] = '\0';
+                }
+                key = GetCharPressed();
+                wtxtbx->sel_update = true;
             } else {
-                wtxtbx->str[wtxtbx->letter_count] = '\0';
+                key = GetCharPressed();
             }
-            key = GetCharPressed();
         }
         if (IsKeyPressed(KEY_BACKSPACE)){ // Erase char
             wtxtbx->letter_count--;
             if (wtxtbx->letter_count < 0) {wtxtbx->letter_count = 0;}
             wtxtbx->str[wtxtbx->letter_count] = '\0';
+            wtxtbx->sel_update = true;
         }
         if (IsKeyDown(KEY_BACKSPACE)) { // Hold backspace behavior
             wtxtbx->backspace_frames++;
@@ -288,6 +315,7 @@ void DrawWritableTextBox(WritableTextBox *wtxtbx) {
                 wtxtbx->letter_count--;
                 if (wtxtbx->letter_count < 0) {wtxtbx->letter_count = 0;}
                 wtxtbx->str[wtxtbx->letter_count] = '\0';
+                wtxtbx->sel_update = true;
             }
 
         } else {
@@ -298,26 +326,137 @@ void DrawWritableTextBox(WritableTextBox *wtxtbx) {
     DrawRectangleRec(wtxtbx->text_box, WHITE);
     int tx = (int)wtxtbx->text_box.x;
     int ty = (int)wtxtbx->text_box.y;
-    DrawText(wtxtbx->str, tx + TEXT_BOX_W_PADDING, ty + TEXT_BOX_H_PADDING, wtxtbx->font_size, MAROON);
+    //DrawText(wtxtbx->str, tx + TEXT_BOX_W_PADDING, ty + TEXT_BOX_H_PADDING, wtxtbx->font_size, MAROON);
+    DrawTextEx(wtxtbx->font,
+               wtxtbx->str,
+               (Vector2) {tx + TEXT_BOX_W_PADDING, ty},
+               wtxtbx->font.baseSize,
+               wtxtbx->font_sp,
+               MAROON
+    );
     if (wtxtbx->writable) {wtxtbx->blink_frames++;} else {wtxtbx->blink_frames=0;}
     if ((((wtxtbx->blink_frames / 30) + 1) % 2) == 0) {
-        DrawText(
-            "|",
-            tx + 8 + MeasureText(wtxtbx->str, wtxtbx->font_size),
-            ty + 8, wtxtbx->font_size,
-            MAROON); 
+         Vector2 blink_start = {
+            tx 
+            + 2*TEXT_BOX_W_PADDING 
+            + MeasureTextEx(wtxtbx->font,
+                            wtxtbx->str,
+                            wtxtbx->font.baseSize,
+                            wtxtbx->font_sp).x,
+            ty + TEXT_BOX_H_PADDING/2.0f
+        };
+
+        DrawLineEx(
+            blink_start,
+            (Vector2){blink_start.x,
+            blink_start.y + wtxtbx->text_box.height - TEXT_BOX_H_PADDING},
+            3.0f,
+            MAROON
+        );
     }
+}
+
+void DrawSelectionOnWritableTextBox(WritableTextBox *wtxtbx, int start, int end) {    
+    // TODO: Add some sort of way to not have to compute this every frame
+    //
+    // if (!wtxtbx->sel_update) {return;}
+    // wtxtbx->sel_update = false;
+    // if (end > wtxtbx->letter_count) {
+    //     if (debug_info) fprintf(stderr, "`end` (%d) should be bigger than the length of the string\n", end);
+    //     return;
+    // }
+    // if (start > end) {
+    //     if (debug_info) fprintf(stderr, "`end` (%d) should be bigger than `start` (%d)\n", end, start);
+    //     return;
+    // }
+    if (start == end) {return;}
+    // TODO: Cleanup this function, probably with sel_start and sel_end
+
+    char before_select[MAX_INPUT_CHARS + 1];
+    char select[MAX_INPUT_CHARS + 1];
+    strcpy(before_select, wtxtbx->str);
+    strcpy(select, wtxtbx->str);
+    before_select[start] = '\0';
+    select[end] = '\0';
+
+    int xoff = MeasureTextEx(
+        wtxtbx->font,
+        before_select,
+        wtxtbx->font.baseSize,
+        wtxtbx->font_sp
+    ).x;
+
+    int xwidth = MeasureTextEx(
+        wtxtbx->font,
+        select,
+        wtxtbx->font.baseSize,
+        wtxtbx->font_sp
+    ).x;
+
+    DrawRectangle(
+        wtxtbx->text_box.x + TEXT_BOX_H_PADDING - 2 + xoff, 
+        wtxtbx->text_box.y + TEXT_BOX_W_PADDING,
+        xwidth - xoff,
+        wtxtbx->text_box.height - 2*TEXT_BOX_H_PADDING,
+        TXT_SEL_COLOR
+    );
+
+}
+
+void handle_selection(WritableTextBox *wtxtbx) {
+    if (wtxtbx->writable) {
+        if (IsKeyPressed(KEY_LEFT) && IsKeyDown(KEY_LEFT_CONTROL)){
+            wtxtbx->sel_start -= 1;
+            if (wtxtbx->sel_start < 0) {wtxtbx->sel_start = 0;}
+        }
+        if (IsKeyPressed(KEY_RIGHT) && IsKeyDown(KEY_LEFT_CONTROL)){
+            wtxtbx->sel_start += 1;
+            if (wtxtbx->sel_start > wtxtbx->letter_count) {wtxtbx->sel_start = wtxtbx->letter_count;}
+        }
+        if (IsKeyPressed(KEY_A) && IsKeyDown(KEY_LEFT_CONTROL)){
+            wtxtbx->sel_start = 0;
+            wtxtbx->sel_end = wtxtbx->letter_count;
+        }
+    }
+    DrawSelectionOnWritableTextBox(wtxtbx, wtxtbx->sel_start, wtxtbx->sel_end);
+    // TODO: Implement double clicking to select all using `click_frames`
+    if ((IsKeyPressed(KEY_C) && IsKeyDown(KEY_LEFT_CONTROL))){
+        char clip[MAX_INPUT_CHARS + 1];
+        strcpy(clip, wtxtbx->str);
+        clip[wtxtbx->sel_end] = '\0';
+        SetClipboardText(clip + wtxtbx->sel_start);
+    }
+
+
 }
 
 
 
-int main(int argc, char* argv[])
-{
+#define DRAW_DEBUG(fmt, ...) \
+    DrawText(TextFormat(fmt, ##__VA_ARGS__),\
+            GetScreenWidth()-500,\
+            GetScreenHeight()/2 + 160 + (dbg_line++)*20,\
+            20, WHITE);
 
-    // Config and start
+void show_debug(TextureView *mt, SelectionRect *sel) {
+    Vector2 mouse_pos = GetMousePosition();
+    int dbg_line = 0;
+    DRAW_DEBUG("moup: x=%.2f, y=%.2f", mouse_pos.x, mouse_pos.y);
+    DRAW_DEBUG("mt.tp: x=%.2f, y=%.2f", mt->texture_pos.x, mt->texture_pos.y);
+    DRAW_DEBUG("mt.ao: x=%.2f, y=%.2f", mt->attach_offset.x, mt->attach_offset.y);
+    DRAW_DEBUG("mt.a: %b", mt->attached);
+    DRAW_DEBUG("mt.sc: %f", mt->target_scale);
+    DRAW_DEBUG("selsize: w=%.2f h=%.2f", sel->rect.width, sel->rect.height);
+} 
+
+int main(int argc, char* argv[]) { // Config and start
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(START_WINDOW_WIDTH, START_WINDOW_HEIGHT, PROGRAM_NAME);
     MaximizeWindow();
+    //testing
+    
+    // Load font
+    Font main_font = LoadFontEx("./fonts/Inter-VariableFont_opsz,wght.ttf", 40, 0, 250);
 
     // Setting up the main view rectangle
     float center_y = GetScreenHeight()/2.0f;
@@ -349,23 +488,17 @@ int main(int argc, char* argv[])
     selection.attached = false;
 
     bool mouse_is_hovering = false; // If mouse is hovering any text box
+    bool is_writing = false;        // If we are writing in any box 
 
-    WritableTextBox width_wtxtbx = {0};
-    width_wtxtbx.text_box = (Rectangle){GetScreenWidth()-350, 500, 100, 40};
-    strcpy(width_wtxtbx.str, "225");
-    width_wtxtbx.letter_count = strlen(width_wtxtbx.str); 
+    WritableTextBox width_wtxtbx = setup_wtxtbx((Rectangle){GetScreenWidth()-350, 500, 100, 40}, "225", main_font);
     selection.width = GetNumFromWBox(width_wtxtbx);
 
-    WritableTextBox height_wtxtbx = {0};
-    height_wtxtbx.text_box = (Rectangle){GetScreenWidth()-350, 550, 100, 40};
-    strcpy(height_wtxtbx.str, "300");
-    height_wtxtbx.letter_count = strlen(height_wtxtbx.str); 
+    WritableTextBox height_wtxtbx = setup_wtxtbx((Rectangle){GetScreenWidth()-350, 550, 100, 40}, "300", main_font);
     selection.height = GetNumFromWBox(height_wtxtbx);
     
     setup_texture(&main_tex);
     SetTargetFPS(FPS);
     while (!WindowShouldClose()) { // MAIN LOOP START
-        if (IsKeyPressed(KEY_Q) && !width_wtxtbx.writable) {CloseWindow();}
 
         BeginDrawing();
         ClearBackground(BG_COLOR);
@@ -375,7 +508,7 @@ int main(int argc, char* argv[])
 
         // Selection rectangle logic
         // Using keys:
-        if (!width_wtxtbx.writable) {
+        if (!width_wtxtbx.writable && IsKeyUp(KEY_LEFT_CONTROL)) {
             int key_offset;
             if (IsKeyDown(KEY_LEFT_SHIFT)){key_offset = 10;}else{key_offset = 1;}
 
@@ -512,6 +645,8 @@ int main(int argc, char* argv[])
 
         DrawWritableTextBox(&width_wtxtbx);
         DrawWritableTextBox(&height_wtxtbx);
+        handle_selection(&width_wtxtbx);
+        handle_selection(&height_wtxtbx);
         
         if (IsKeyPressed(KEY_ENTER)){
             selection.width = GetNumFromWBox(width_wtxtbx);
@@ -521,15 +656,14 @@ int main(int argc, char* argv[])
         mouse_is_hovering |= width_wtxtbx.hovering;
         mouse_is_hovering |= height_wtxtbx.hovering;
         SetMouseCursor(mouse_is_hovering ? MOUSE_CURSOR_IBEAM : MOUSE_CURSOR_DEFAULT);
+        is_writing = false;
+        is_writing |= width_wtxtbx.writable;
+        is_writing |= height_wtxtbx.writable;
+        if (IsKeyPressed(KEY_J) && !is_writing) {debug_info = !debug_info;}
+        if (IsKeyPressed(KEY_Q) && !width_wtxtbx.writable) {CloseWindow();}
+
         
-        if (DEBUG_INFO) {
-            DrawText(TextFormat("moup: x=%.2f, y=%.2f", mouse_pos.x, mouse_pos.y), GetScreenWidth()-500, GetScreenHeight()/2 + 160, 20, WHITE);
-            DrawText(TextFormat("mt.tp: x=%.2f, y=%.2f", main_tex.texture_pos.x, main_tex.texture_pos.y), GetScreenWidth()-500, GetScreenHeight()/2 + 180, 20, WHITE);
-            DrawText(TextFormat("ao: x=%.2f, y=%.2f", main_tex.attach_offset.x, main_tex.attach_offset.y), GetScreenWidth()-500, GetScreenHeight()/2 + 200, 20, WHITE);
-            DrawText(TextFormat("mt.a: %b", main_tex.attached), GetScreenWidth()-500, GetScreenHeight()/2 + 220, 20, WHITE);
-            DrawText(TextFormat("mt.sc: %f", main_tex.target_scale), GetScreenWidth()-500, GetScreenHeight()/2 + 240, 20, WHITE);
-            DrawText(TextFormat("selsize: w=%.2f h=%.2f", selection.rect.width, selection.rect.height), GetScreenWidth()-500, GetScreenHeight()/2 + 260, 20, WHITE);
-        }
+        if (debug_info) {show_debug(&main_tex, &selection);}
 
         if (IsWindowResized()){
             // screenCenter = (Vector2){GetScreenWidth()/2.0f, GetScreenHeight()/2.0f};
