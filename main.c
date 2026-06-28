@@ -4,9 +4,13 @@
 
 #include "foreign/tinyfiledialogs.h"
 
+#define SMANIP_IMPLEMENTATION
+#include "include/smanip.h"
+
 #define RAYGUI_IMPLEMENTATION
 #include "foreign/raygui.h"
 
+#define SV_FORMAT(sv) TextFormat(SV_FMT, SV_ARG(sv))
 
 #define PROGRAM_NAME "Image Cropper"
 
@@ -52,9 +56,8 @@ typedef struct {
 
     Font font;
 
-    char *string;
-    int letter_count;
-    int max_letter_count;
+    String_Builder str;
+
     int font_sp;
     int font_size;
 
@@ -62,7 +65,6 @@ typedef struct {
 
     int backspace_frames;
 
-    char str[MAX_INPUT_CHARS + 1];
 
     int sel_start;
     int sel_end;
@@ -105,7 +107,8 @@ typedef struct {
 
 int GetNumFromWBox(WritableTextBox wtxtbx) {
 
-    return (int)strtol(wtxtbx.str, NULL, 10);
+    String_View sv = sb_to_sv(&wtxtbx.str);
+    return (int)strtol(sv.data, NULL, 10);
 
 }
 
@@ -264,17 +267,17 @@ void setup_texture(TextureView *texV){
 WritableTextBox setup_wtxtbx(const Rectangle text_box_rect, char *def_str, Font font){
     WritableTextBox wtxtbx = {0};
     wtxtbx.text_box = text_box_rect; 
-    strcpy(wtxtbx.str, def_str);
-    wtxtbx.letter_count = strlen(wtxtbx.str); 
+    sb_append_cstr(&wtxtbx.str, def_str);
+
     wtxtbx.font = font;
     wtxtbx.font_sp = 1; // FONT SPACING
-    wtxtbx.sel_start = wtxtbx.letter_count; // SETTING THIS FOR NOW TO WORK WITH CTRL + LEFT AND CTRL + RIGHT
-    wtxtbx.sel_end = wtxtbx.letter_count;
+    wtxtbx.sel_start = wtxtbx.str.count; // SETTING THIS FOR NOW TO WORK WITH CTRL + LEFT AND CTRL + RIGHT
+    wtxtbx.sel_end = wtxtbx.str.count;
     return wtxtbx;
 }
 
 
-void DrawWritableTextBox(WritableTextBox *wtxtbx) {    
+void DrawWritableTextBox(WritableTextBox *wtxtbx) {
     wtxtbx->font_size = wtxtbx->text_box.height - 10;
     if (CheckCollisionPointRec(GetMousePosition(), wtxtbx->text_box)) {
         wtxtbx->hovering = true;
@@ -286,36 +289,30 @@ void DrawWritableTextBox(WritableTextBox *wtxtbx) {
     if (IsKeyPressed(KEY_ENTER)) {wtxtbx->writable = false;} // Leave if pressed enter
 
     if (wtxtbx->writable){
-        int key = GetCharPressed();
-        while (key > 0) { 
+        int key; 
+        while ((key = GetCharPressed()) > 0) { 
             if ('0' <= key && key <= '9') {
-                wtxtbx->str[wtxtbx->letter_count] = (char)key;
-                wtxtbx->str[wtxtbx->letter_count + 1] = '\0';
-                Vector2 next_width = MeasureTextEx(wtxtbx->font, wtxtbx->str, wtxtbx->font.baseSize, wtxtbx->font_sp);
-                if (next_width.x < (wtxtbx->text_box.width - TEXT_BOX_W_PADDING)){
-                    wtxtbx->letter_count++;
-                } else {
-                    wtxtbx->str[wtxtbx->letter_count] = '\0';
+                sb_append(&wtxtbx->str, (char)key);
+                char cstr[1024];
+                sb_to_cstr(wtxtbx->str, cstr);
+                Vector2 next_width = MeasureTextEx(wtxtbx->font, cstr, wtxtbx->font.baseSize, wtxtbx->font_sp);
+                if (next_width.x >= (wtxtbx->text_box.width - TEXT_BOX_W_PADDING)) {
+                    sb_pop(&wtxtbx->str);
                 }
-                key = GetCharPressed();
-                wtxtbx->sel_update = true;
-            } else {
-                key = GetCharPressed();
             }
+
         }
         if (IsKeyPressed(KEY_BACKSPACE)){ // Erase char
-            wtxtbx->letter_count--;
-            if (wtxtbx->letter_count < 0) {wtxtbx->letter_count = 0;}
-            wtxtbx->str[wtxtbx->letter_count] = '\0';
-            wtxtbx->sel_update = true;
+            if (wtxtbx->str.count != 0) {
+                    sb_pop(&wtxtbx->str);
+                }
         }
         if (IsKeyDown(KEY_BACKSPACE)) { // Hold backspace behavior
             wtxtbx->backspace_frames++;
             if (wtxtbx->backspace_frames > 40 && wtxtbx->backspace_frames % 5 == 0) {
-                wtxtbx->letter_count--;
-                if (wtxtbx->letter_count < 0) {wtxtbx->letter_count = 0;}
-                wtxtbx->str[wtxtbx->letter_count] = '\0';
-                wtxtbx->sel_update = true;
+                if (wtxtbx->str.count != 0) {
+                        sb_pop(&wtxtbx->str);
+                    }
             }
 
         } else {
@@ -326,9 +323,9 @@ void DrawWritableTextBox(WritableTextBox *wtxtbx) {
     DrawRectangleRec(wtxtbx->text_box, WHITE);
     int tx = (int)wtxtbx->text_box.x;
     int ty = (int)wtxtbx->text_box.y;
-    //DrawText(wtxtbx->str, tx + TEXT_BOX_W_PADDING, ty + TEXT_BOX_H_PADDING, wtxtbx->font_size, MAROON);
+    String_View sv = sb_to_sv(&wtxtbx->str);
     DrawTextEx(wtxtbx->font,
-               wtxtbx->str,
+               TextFormat(SV_FMT, SV_ARG(sv)),
                (Vector2) {tx + TEXT_BOX_W_PADDING, ty},
                wtxtbx->font.baseSize,
                wtxtbx->font_sp,
@@ -340,7 +337,7 @@ void DrawWritableTextBox(WritableTextBox *wtxtbx) {
             tx 
             + 2*TEXT_BOX_W_PADDING 
             + MeasureTextEx(wtxtbx->font,
-                            wtxtbx->str,
+                            TextFormat(SV_FMT, SV_ARG(sv)),
                             wtxtbx->font.baseSize,
                             wtxtbx->font_sp).x,
             ty + TEXT_BOX_H_PADDING/2.0f
@@ -356,7 +353,8 @@ void DrawWritableTextBox(WritableTextBox *wtxtbx) {
     }
 }
 
-void DrawSelectionOnWritableTextBox(WritableTextBox *wtxtbx, int start, int end) {    
+
+void DrawSelectionOnWritableTextBox(WritableTextBox *wtxtbx) {    
     // TODO: Add some sort of way to not have to compute this every frame
     //
     // if (!wtxtbx->sel_update) {return;}
@@ -369,33 +367,31 @@ void DrawSelectionOnWritableTextBox(WritableTextBox *wtxtbx, int start, int end)
     //     if (debug_info) fprintf(stderr, "`end` (%d) should be bigger than `start` (%d)\n", end, start);
     //     return;
     // }
-    if (start == end) {return;}
+    if (wtxtbx->sel_start == wtxtbx->sel_end) {return;}
     // TODO: Cleanup this function, probably with sel_start and sel_end
 
-    char before_select[MAX_INPUT_CHARS + 1];
-    char select[MAX_INPUT_CHARS + 1];
-    strcpy(before_select, wtxtbx->str);
-    strcpy(select, wtxtbx->str);
-    before_select[start] = '\0';
-    select[end] = '\0';
+    String_View before_select = sb_to_sv(&wtxtbx->str);
+    String_View select = sb_to_sv(&wtxtbx->str);
+    before_select = sv_strip_right(before_select, wtxtbx->sel_start);
+    select = sv_strip_right(select, wtxtbx->sel_end);
 
     int xoff = MeasureTextEx(
         wtxtbx->font,
-        before_select,
+        SV_FORMAT(before_select),
         wtxtbx->font.baseSize,
         wtxtbx->font_sp
     ).x;
 
     int xwidth = MeasureTextEx(
         wtxtbx->font,
-        select,
+        SV_FORMAT(select),
         wtxtbx->font.baseSize,
         wtxtbx->font_sp
     ).x;
 
     DrawRectangle(
-        wtxtbx->text_box.x + TEXT_BOX_H_PADDING - 2 + xoff, 
-        wtxtbx->text_box.y + TEXT_BOX_W_PADDING,
+        wtxtbx->text_box.x + TEXT_BOX_W_PADDING - 2 + xoff, 
+        wtxtbx->text_box.y + TEXT_BOX_H_PADDING,
         xwidth - xoff,
         wtxtbx->text_box.height - 2*TEXT_BOX_H_PADDING,
         TXT_SEL_COLOR
@@ -411,22 +407,20 @@ void handle_selection(WritableTextBox *wtxtbx) {
         }
         if (IsKeyPressed(KEY_RIGHT) && IsKeyDown(KEY_LEFT_CONTROL)){
             wtxtbx->sel_start += 1;
-            if (wtxtbx->sel_start > wtxtbx->letter_count) {wtxtbx->sel_start = wtxtbx->letter_count;}
+            if (wtxtbx->sel_start > (int)wtxtbx->str.count) {wtxtbx->sel_start = (int)wtxtbx->str.count;}
         }
         if (IsKeyPressed(KEY_A) && IsKeyDown(KEY_LEFT_CONTROL)){
             wtxtbx->sel_start = 0;
-            wtxtbx->sel_end = wtxtbx->letter_count;
+            wtxtbx->sel_end = (int)wtxtbx->str.count;
         }
     }
-    DrawSelectionOnWritableTextBox(wtxtbx, wtxtbx->sel_start, wtxtbx->sel_end);
+    DrawSelectionOnWritableTextBox(wtxtbx);
     // TODO: Implement double clicking to select all using `click_frames`
-    if ((IsKeyPressed(KEY_C) && IsKeyDown(KEY_LEFT_CONTROL))){
-        char clip[MAX_INPUT_CHARS + 1];
-        strcpy(clip, wtxtbx->str);
-        clip[wtxtbx->sel_end] = '\0';
-        SetClipboardText(clip + wtxtbx->sel_start);
+    if ((IsKeyPressed(KEY_C) && IsKeyDown(KEY_LEFT_CONTROL) && wtxtbx->writable)){
+        String_View clip = sb_to_sv(&wtxtbx->str);
+        clip = sv_strip_sides(clip, wtxtbx->sel_start, wtxtbx->sel_end);
+        SetClipboardText(TextFormat(SV_FMT, SV_ARG(clip)));
     }
-
 
 }
 
@@ -450,6 +444,7 @@ void show_debug(TextureView *mt, SelectionRect *sel) {
 } 
 
 int main(int argc, char* argv[]) { // Config and start
+
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(START_WINDOW_WIDTH, START_WINDOW_HEIGHT, PROGRAM_NAME);
     MaximizeWindow();
