@@ -1,27 +1,32 @@
-SHELL := cmd.exe
-
 CC = gcc
 CFLAGS = -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type -Iinclude 
 
-LDFLAGS = -L. -Llib -lraylib -lopengl32 -lgdi32 
+ifeq ($(OS), Windows_NT)
+	TARGET = build/main.exe
+	LDFLAGS = -L. -Llib -lraylib -lopengl32 -lgdi32 -lwinmm -lole32 -lcomdlg32
+	FINALTARGET = build/image-cropper.exe
+	FINAL = -mwindows
+	RM = del
 
-WINDOWS = -lwinmm -lole32 -lcomdlg32
+else
+	TARGET = build/main
+	LDFLAGS = -L. -lraylib -lm -lpthread -ldl -lrt -lX11
+	FINALTARGET = build/image-cropper
+	FINAL =
+	RM = rm -f
 
-FINAL = -mwindows
+endif
 
-FINALTARGET = build\image-cropper.exe
-
-TARGET = build\main.exe
 
 all:
-	$(CC) main.c foreign\tinyfiledialogs.c -o $(TARGET) $(CFLAGS) $(LDFLAGS) $(WINDOWS)
+	$(CC) main.c foreign/tinyfiledialogs.c -o $(TARGET) $(CFLAGS) $(LDFLAGS)
 
 sb:
-	$(CC) sbuilder.c -o build\sbuilder.exe $(CFLAGS) $(WINDOWS)
+	$(CC) sbuilder.c -o build/sbuilder.exe $(CFLAGS)
 
 ready:
-	$(CC) main.c foreign\tinyfiledialogs.c -o $(FINALTARGET) $(CFLAGS) $(LDFLAGS) $(WINDOWS) $(FINAL)
+	$(CC) main.c foreign/tinyfiledialogs.c -o $(FINALTARGET) $(CFLAGS) $(LDFLAGS) $(FINAL)
 
 clean:
-	del $(TARGET)
-	del $(FINALTARGET)
+	$(RM) $(TARGET)
+	$(RM) $(FINALTARGET)

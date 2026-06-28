@@ -43,12 +43,12 @@ void sb_manage_memory(String_Builder *sb, size_t exp_mem){
             sb->items = malloc(sb->cap * sizeof(*sb->items));
         } else {
             sb->cap *= 2;
-            printf("[INFO] Doubled size of string to %lld\n", sb->cap);
+            printf("[INFO] Doubled size of string to %zu\n", sb->cap);
             sb->items = realloc(sb->items, sb->cap* sizeof(*sb->items));
         }
     } else if ((exp_mem < sb->cap/4) && (exp_mem > SB_MIN_CAP)) {
         sb->cap /= 2;
-        printf("[INFO] Halfed size of string to %lld\n", sb->cap);
+        printf("[INFO] Halfed size of string to %zu\n", sb->cap);
         sb->items = realloc(sb->items, sb->cap* sizeof(*sb->items));
     }
 }
