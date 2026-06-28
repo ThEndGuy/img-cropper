@@ -6,4 +6,4 @@ build/
 # Images
 testImages/
 # smanip.c
-smanip.c
+smanip.*
